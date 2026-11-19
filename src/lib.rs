@@ -8,6 +8,7 @@ mod fg_observer;
 #[cfg(target_os = "android")]
 mod file_logger;
 mod gpu_hook;
+mod gpu_lkm;
 mod hooks;
 mod prop_backend;
 mod spec;
@@ -20,7 +21,7 @@ use std::{
 
 use anyhow::Context;
 use companion::{handle_companion_request, spoof_system_props_via_companion};
-use config::Config;
+use config::{Config, GpuBackend};
 use hooks::hook_build_fields;
 use jni::{EnvUnowned, errors::ThrowRuntimeExAndDefault};
 use log::{LevelFilter, error, info, warn};
@@ -232,11 +233,60 @@ impl MyModule {
             info!("Build fields faked successfully");
         }
 
-        // ①-pre 运行时 GPU 伪装准备（若配置了任意 gpu_* 字段则跳过 DlClose 并设 Mesa 环境变量）
+        // ①-pre 运行时 GPU 伪装准备：
+        //   - auto（默认）：优先走 df_gpu_vfs.ko LKM 零驻留代理；若 LKM 不可用则回退进程内 GOT Hook
+        //   - lkm：严格零驻留，仅同步 LKM + 设 Mesa 环境变量，绝不保留 Zygisk 模块驻留
+        //   - hook：强制使用进程内 GOT/PLT Hook
         if let Some(gpu_cfg) = merged.resolved_gpu_config() {
-            gpu_hook::prepare_in_pre_specialize(&gpu_cfg, config.debug);
-            if config.debug {
-                info!("GPU spoof prepared for {package_name}: {gpu_cfg:?}");
+            let app_uid = (*args.uid).max(0) as u32;
+            match config.gpu_backend {
+                GpuBackend::Auto => {
+                    let lkm_ok = companion::sync_gpu_lkm_via_companion(
+                        api,
+                        app_uid,
+                        &gpu_cfg,
+                        config.debug,
+                    )
+                    .unwrap_or(false);
+                    if lkm_ok {
+                        gpu_hook::prepare_mesa_env_only(&gpu_cfg);
+                        if config.debug {
+                            info!(
+                                "GPU spoof delegated to df_gpu_vfs LKM (zero-residency) for {package_name} (uid={app_uid}): {gpu_cfg:?}"
+                            );
+                        }
+                    } else {
+                        gpu_hook::prepare_in_pre_specialize(&gpu_cfg, config.debug);
+                        if config.debug {
+                            info!(
+                                "GPU spoof LKM unavailable, falling back to GOT hook for {package_name}: {gpu_cfg:?}"
+                            );
+                        }
+                    }
+                }
+                GpuBackend::Lkm => {
+                    let lkm_ok = companion::sync_gpu_lkm_via_companion(
+                        api,
+                        app_uid,
+                        &gpu_cfg,
+                        config.debug,
+                    )
+                    .unwrap_or(false);
+                    gpu_hook::prepare_mesa_env_only(&gpu_cfg);
+                    if config.debug {
+                        info!(
+                            "GPU spoof strict LKM mode (active={lkm_ok}, zero-residency) for {package_name} (uid={app_uid}): {gpu_cfg:?}"
+                        );
+                    }
+                }
+                GpuBackend::Hook => {
+                    gpu_hook::prepare_in_pre_specialize(&gpu_cfg, config.debug);
+                    if config.debug {
+                        info!(
+                            "GPU spoof GOT hook forced for {package_name}: {gpu_cfg:?}"
+                        );
+                    }
+                }
             }
         }
 

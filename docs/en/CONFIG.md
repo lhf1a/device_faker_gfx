@@ -16,10 +16,15 @@ The config is **hot-reloaded**: the module re-reads the file on every app launch
 ```toml
 debug = false                        # debug logging (off by default)
 default_force_denylist_unmount = false
+gpu_backend = "auto"                 # GPU spoof backend: "auto" | "lkm" | "hook"
 ```
 
 - `debug`: when enabled, Info-level logs are output (Error-only when disabled), written to `/data/adb/device_faker/logs/device_faker.log`; keep it disabled during normal use for better stealth
 - `default_force_denylist_unmount`: enables Zygisk's `FORCE_DENYLIST_UNMOUNT` for the target apps; can be overridden per template / per app with `force_denylist_unmount`
+- `gpu_backend`: selects the GPU spoofing backend:
+  - `"auto"` (default): prefers `df_gpu_vfs.ko` LKM VFS proxy (zero Zygisk residency, zero GOT/PLT patching); falls back to in-process GOT hooks if the `.ko` is not loaded
+  - `"lkm"`: strict zero-residency mode using `df_gpu_vfs.ko` + Mesa env vars only; never keeps the Zygisk module resident
+  - `"hook"`: forces in-process GOT/PLT hooks, ignoring LKM
 
 ## Editing the Configuration
 
@@ -174,10 +179,16 @@ The following GPU spoofing fields can be set in templates or `[[apps]]` to rewri
   - `intel` / `iris` / `arc` → `Intel` (`0x8086`)
   - `radeon` / `amd` / `rdna` → `AMD` (`0x1002`)
   - `llvmpipe` / `lavapipe` / `softpipe` / `swiftshader` / `mesa` → `Mesa` (`0x10005`)
-- **Runtime hooks & on-demand residency**:
-  - Only when an app resolves with at least one effective `gpu_*` field (empty/whitespace strings or `"__DELETE__"` are treated as unset) does the module skip `DlClose` and install ELF64 GOT/PLT hooks in `post_app_specialize`; apps without GPU spoofing still unload immediately after patching properties.
-  - Hooks cover already-loaded libraries and libraries loaded later via `dlopen`, `android_dlopen_ext`, `dlsym`, `eglGetProcAddress`, `vkGetInstanceProcAddr`, and `vkGetDeviceProcAddr`, intercepting `glGetString` as well as `vkGetPhysicalDeviceProperties`, `vkGetPhysicalDeviceProperties2`, and `vkGetPhysicalDeviceProperties2KHR`.
-  - When `debug = true`, GPU hook installation diagnostics are also logged to Android logcat under tag `device_faker_gpu`.
+- **Zero-residency LKM mode (`df_gpu_vfs.ko`)**:
+  - Build the LKM against your target kernel build tree:
+    ```bash
+    make -C lkm KDIR=/path/to/kernel-build ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+    ```
+  - Pass `DF_KERNEL_DIR=/path/to/kernel-build cargo run --package xtask -- build -r` to bundle `df_gpu_vfs.ko` in the release ZIP, or place a kernel-matched `.ko` on the device at `/data/adb/device_faker/lkm/df_gpu_vfs.ko` (loaded automatically by `post-fs-data.sh`).
+  - When active, the Zygisk module still unloads via `DlClose` with zero GOT/PLT or `dlopen`/`dlsym` modifications.
+- **In-process GOT hook fallback (when no `.ko` is loaded)**:
+  - Only when an app resolves with at least one effective `gpu_*` field (empty/whitespace strings or `"__DELETE__"` are treated as unset) and `gpu_backend` is `"auto"` or `"hook"` does the module skip `DlClose` and install ELF64 GOT/PLT hooks in `post_app_specialize`.
+  - When `debug = true`, diagnostics are also logged to Android logcat (`device_faker_gpu` / `df_vk_proxy` / `df_gles_proxy` / `df_egl_proxy`).
 
 ### Per-app DPI
 

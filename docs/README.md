@@ -31,9 +31,14 @@
   - 在 `pre_app_specialize` 阶段为 Mesa / Turnip / Zink 驱动自动注入 `force_gl_renderer` 与 `force_gl_vendor` 环境变量（不影响非 Mesa 驱动）。
 - **Vulkan 伪装**：
   - 拦截 `vkGetPhysicalDeviceProperties`、`vkGetPhysicalDeviceProperties2` 与 `vkGetPhysicalDeviceProperties2KHR`，覆盖 `deviceName`（`gpu_renderer`）、`vendorID`（`gpu_vendor_id`）、`deviceID`（`gpu_device_id`）与 `driverVersion`（`gpu_driver_version`）。
-- **动态加载追踪与按需驻留**：
-  - 仅在配置了任意 `gpu_*` 字段的应用进程中保留模块，并通过 ELF64 GOT/PLT 补丁（支持 `DT_JMPREL`、`DT_RELA` 与 Android `APS2` 压缩重定位）以及 `dlopen` / `android_dlopen_ext` / `dlsym` / `eglGetProcAddress` / `vkGetInstanceProcAddr` / `vkGetDeviceProcAddr` 追踪后续动态加载的图形库。
-  - 未配置 GPU 字段的应用不会启用 GPU Hook，处理完设备属性后仍照常 `DlClose` 卸载模块。
+- **零驻留 LKM 代理模式（推荐，方案 2）**：
+  - 加载配套内核模块 `df_gpu_vfs.ko`（位于 `lkm/`）后，companion 通过隐藏 `prctl` 通道（无 `/dev`、`/proc`、`/sys` 节点，非目标 UID 探测零响应）将目标应用的 UID 与 GPU 配置同步进内核。
+  - 内核仅在目标 UID 打开厂商图形驱动（`/vendor/lib64/hw/vulkan.*.so`、`/vendor/lib64/egl/lib{EGL,GLESv2}_*.so`）时，在 VFS `getname_flags` 阶段将其按进程透明重定向到随模块打包的薄代理 `.so`（`vulkan.df_proxy.so` / `libEGL_df_proxy.so` / `libGLESv2_df_proxy.so`）；代理再通过 `.df_orig_` 旁路前缀加载真实底层驱动（完整保留 `sq2-vulkan-policy.conf` 等路由机制）。
+  - **Zygisk 模块在 `pre_app_specialize` 写完属性后照常立即 `DlClose` 卸载**：实现 **零 Zygisk 驻留、零 GOT/PLT 改写、零 `dlopen`/`dlsym` Hook、零 `/proc/self/mountinfo` 挂载痕迹**。
+- **进程内 GOT Hook 回退模式（兼容无 `.ko` 内核）**：
+  - 默认 `gpu_backend = "auto"`：未加载 `df_gpu_vfs.ko` 时自动回退到进程内 ELF64 GOT/PLT 钩子（支持 `DT_JMPREL`、`DT_RELA`、Android `APS2` 压缩重定位及 `dlopen`/`android_dlopen_ext`/`dlsym`/`eglGetProcAddress`/`vkGetInstanceProcAddr`/`vkGetDeviceProcAddr` 追踪）。
+  - 可在 `config.toml` 顶部配置 `gpu_backend = "lkm"` 强制严格零驻留（不回退），或 `gpu_backend = "hook"` 强制进程内 Hook。
+  - 未配置任何 `gpu_*` 字段的应用始终零驻留。
 - **厂商自动推断**：
   - 仅填写 `gpu_renderer`（例如 `Adreno (TM) 840`、`Mali-G720-Immortalis`）而留空 `gpu_vendor` / `gpu_vendor_id` 时，会自动按关键字推断常见厂商名称与 PCI/Vulkan Vendor ID（支持 Qualcomm `0x5143`、ARM `0x13B5`、Imagination `0x1010`、Samsung `0x144D`、Apple `0x106B`、NVIDIA `0x10DE`、Intel `0x8086`、AMD `0x1002`、Mesa `0x10005`）。
 

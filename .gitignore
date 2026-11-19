@@ -7,3 +7,14 @@ target/
 website/node_modules/
 website/docs/.vitepress/dist/
 website/docs/.vitepress/cache/
+
+# LKM Kbuild artifacts
+lkm/*.o
+lkm/*.ko
+lkm/*.mod
+lkm/*.mod.c
+lkm/*.mod.o
+lkm/.*.cmd
+lkm/Module.symvers
+lkm/modules.order
+lkm/.tmp_versions/

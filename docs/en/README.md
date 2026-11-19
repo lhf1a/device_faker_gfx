@@ -31,9 +31,14 @@ A Zygisk-based device & GPU spoofing module (forked from [Seyud/device_faker](ht
   - Sets `force_gl_renderer` and `force_gl_vendor` environment variables in `pre_app_specialize` for Mesa / Turnip / Zink drivers (no-op for non-Mesa drivers).
 - **Vulkan spoofing**:
   - Intercepts `vkGetPhysicalDeviceProperties`, `vkGetPhysicalDeviceProperties2`, and `vkGetPhysicalDeviceProperties2KHR` to override `deviceName` (`gpu_renderer`), `vendorID` (`gpu_vendor_id`), `deviceID` (`gpu_device_id`), and `driverVersion` (`gpu_driver_version`).
-- **Dynamic library tracking & on-demand residency**:
-  - Only stays resident in processes that configure at least one `gpu_*` field, patching ELF64 GOT/PLT entries (`DT_JMPREL`, `DT_RELA`, and Android packed `APS2` `DT_ANDROID_RELA`) and tracking late-loaded graphics libraries via `dlopen`, `android_dlopen_ext`, `dlsym`, `eglGetProcAddress`, `vkGetInstanceProcAddr`, and `vkGetDeviceProcAddr`.
-  - Apps with no `gpu_*` fields do not activate GPU hooks and still unload the module via `DlClose` immediately.
+- **Zero-residency LKM VFS proxy mode (recommended)**:
+  - When `df_gpu_vfs.ko` (source under `lkm/`) is loaded, the companion syncs targeted UIDs and GPU configs over a stealth `prctl` channel (no `/dev`, `/proc`, or `/sys` nodes; untargeted UIDs receive zero response).
+  - In VFS `getname_flags`, the kernel transparently redirects targeted UIDs' opens of vendor graphics HALs (`/vendor/lib64/hw/vulkan.*.so`, `/vendor/lib64/egl/lib{EGL,GLESv2}_*.so`) to bundled thin AArch64 proxy `.so` libraries (`vulkan.df_proxy.so`, `libEGL_df_proxy.so`, `libGLESv2_df_proxy.so`), which open the real underlying driver via a `.df_orig_` bypass prefix inside Android's `sphal` linker namespace (preserving routers such as `sq2-vulkan-policy.conf`).
+  - **The Zygisk module still unloads immediately via `DlClose`**: achieving **zero Zygisk residency, zero GOT/PLT patching, zero `dlopen`/`dlsym` hooking, and zero `/proc/self/mountinfo` bind-mount traces**.
+- **In-process GOT hook fallback (when no `.ko` is loaded)**:
+  - Default `gpu_backend = "auto"`: automatically falls back to ELF64 GOT/PLT hooking (`DT_JMPREL`, `DT_RELA`, Android `APS2` packed relocations, and `dlopen`/`android_dlopen_ext`/`dlsym`/`eglGetProcAddress`/`vkGetInstanceProcAddr`/`vkGetDeviceProcAddr` tracking) if `df_gpu_vfs.ko` is not loaded.
+  - Set `gpu_backend = "lkm"` for strict zero-residency (never keep Zygisk `.so` resident) or `gpu_backend = "hook"` to force in-process GOT hooks.
+  - Apps with no `gpu_*` fields always unload immediately.
 - **Automatic vendor inference**:
   - When `gpu_renderer` is set (e.g. `Adreno (TM) 840`, `Mali-G720-Immortalis`) and `gpu_vendor` / `gpu_vendor_id` are left blank, common vendor names and Vulkan/PCI vendor IDs are inferred automatically (Qualcomm `0x5143`, ARM `0x13B5`, Imagination `0x1010`, Samsung `0x144D`, Apple `0x106B`, NVIDIA `0x10DE`, Intel `0x8086`, AMD `0x1002`, Mesa `0x10005`).
 

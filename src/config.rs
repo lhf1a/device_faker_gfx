@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use indexmap::IndexMap;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 pub const DPI_MIN: u32 = 120;
 pub const DPI_MAX: u32 = 640;
@@ -541,6 +541,29 @@ pub struct AppConfig {
     pub companion_resetprop: Option<bool>,
 }
 
+/// GPU 伪装后端选择：
+/// - `auto`（默认）：优先使用 `df_gpu_vfs.ko` LKM 零驻留代理；若未加载 `.ko` 则回退到进程内 GOT Hook
+/// - `lkm`：严格零驻留模式，仅使用 LKM 代理 + Mesa 环境变量，绝不保留 Zygisk 模块驻留
+/// - `hook`：强制使用进程内 GOT/PLT Hook（`gpu_hook.rs`）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GpuBackend {
+    #[default]
+    Auto,
+    Lkm,
+    Hook,
+}
+
+impl GpuBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Lkm => "lkm",
+            Self::Hook => "hook",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     /// 是否默认启用 FORCE_DENYLIST_UNMOUNT（避免模块挂载痕迹）
@@ -549,6 +572,9 @@ pub struct Config {
     /// 是否启用调试日志（默认关闭以提高隐蔽性）
     #[serde(default)]
     pub debug: bool,
+    /// GPU 伪装后端（默认 `auto`：优先 LKM 零驻留，未加载 `.ko` 时回退 GOT Hook）
+    #[serde(default)]
+    pub gpu_backend: GpuBackend,
     /// 机型设备模板定义
     ///
     /// 用 IndexMap 而非 HashMap：保留 config.toml 中的书写顺序，使
@@ -1074,7 +1100,7 @@ impl MergedAppConfig {
 }
 
 /// 合并并自动推断后的 GPU 运行时伪装配置
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedGpuConfig {
     pub renderer: Option<String>,
     pub vendor: Option<String>,

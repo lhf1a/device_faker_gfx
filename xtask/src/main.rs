@@ -164,6 +164,12 @@ fn build(release: bool, verbose: bool) -> Result<()> {
         &file::CopyOptions::new().overwrite(true),
     )
     .context("failed to stage zygisk/arm64-v8a.so")?;
+
+    // Build thin AArch64 Vulkan/EGL/GLESv2 proxy .so files for LKM zero-residency mode
+    build_gpu_proxies(&temp_dir)?;
+    // Optionally build/stage df_gpu_vfs.ko when DF_KERNEL_DIR/KDIR is set or prebuilt .ko exists
+    stage_gpu_lkm(&temp_dir)?;
+
     let build_type = if release { "release" } else { "debug" };
     let package_path = Path::new("output").join(format!("device_faker_gfx-({build_type}).zip"));
 
@@ -342,6 +348,123 @@ fn build_webui() -> Result<()> {
 
     run_command(npm().arg("install"), "npm install")?;
     run_command(npm().args(["run", "build"]), "npm run build")?;
+
+    Ok(())
+}
+
+fn find_ndk_llvm_bin() -> Result<PathBuf> {
+    let ndk_root = ["ANDROID_NDK_HOME", "ANDROID_NDK_ROOT", "NDK_HOME"]
+        .into_iter()
+        .find_map(|var| std::env::var_os(var).map(PathBuf::from))
+        .context("ANDROID_NDK_HOME / ANDROID_NDK_ROOT / NDK_HOME is not set")?;
+
+    let prebuilt_dir = ndk_root.join("toolchains/llvm/prebuilt");
+    if let Ok(entries) = fs::read_dir(&prebuilt_dir) {
+        for entry in entries.flatten() {
+            let bin = entry.path().join("bin");
+            if bin.join("aarch64-linux-android31-clang").is_file()
+                || bin.join("aarch64-linux-android31-clang.cmd").is_file()
+            {
+                return Ok(bin);
+            }
+        }
+    }
+    bail!(
+        "could not locate aarch64-linux-android31-clang under {}",
+        prebuilt_dir.display()
+    );
+}
+
+fn build_gpu_proxies(temp_dir: &Path) -> Result<()> {
+    let bin_dir = find_ndk_llvm_bin()?;
+    let cc = if cfg!(windows) {
+        bin_dir.join("aarch64-linux-android31-clang.cmd")
+    } else {
+        bin_dir.join("aarch64-linux-android31-clang")
+    };
+    let strip = if cfg!(windows) {
+        bin_dir.join("llvm-strip.exe")
+    } else {
+        bin_dir.join("llvm-strip")
+    };
+
+    let hw_dir = temp_dir.join("system/vendor/lib64/hw");
+    let egl_dir = temp_dir.join("system/vendor/lib64/egl");
+    fs::create_dir_all(&hw_dir)?;
+    fs::create_dir_all(&egl_dir)?;
+
+    let targets: &[(&str, PathBuf, &[&str])] = &[
+        (
+            "vulkan.df_proxy.so",
+            hw_dir.join("vulkan.df_proxy.so"),
+            &["proxy/df_vk_proxy.c"],
+        ),
+        (
+            "libEGL_df_proxy.so",
+            egl_dir.join("libEGL_df_proxy.so"),
+            &["proxy/df_egl_proxy.c", "proxy/df_egl_thunks.S"],
+        ),
+        (
+            "libGLESv2_df_proxy.so",
+            egl_dir.join("libGLESv2_df_proxy.so"),
+            &["proxy/df_gles_proxy.c", "proxy/df_gles_thunks.S"],
+        ),
+    ];
+
+    for (soname, out_path, srcs) in targets {
+        let mut cmd = Command::new(&cc);
+        cmd.args([
+            "-std=c11",
+            "-O2",
+            "-fPIC",
+            "-shared",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pthread",
+            "-Wl,--no-undefined",
+        ])
+        .arg(format!("-Wl,-soname,{soname}"))
+        .args(*srcs)
+        .args(["-llog", "-ldl", "-o"])
+        .arg(out_path);
+        run_command(&mut cmd, &format!("compile {soname}"))?;
+
+        if strip.is_file() {
+            let mut scmd = Command::new(&strip);
+            scmd.arg("--strip-unneeded").arg(out_path);
+            run_command(&mut scmd, &format!("strip {soname}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn stage_gpu_lkm(temp_dir: &Path) -> Result<()> {
+    let kdir = std::env::var_os("DF_KERNEL_DIR").or_else(|| std::env::var_os("KDIR"));
+    if let Some(kdir_val) = kdir {
+        let cross = std::env::var("CROSS_COMPILE")
+            .unwrap_or_else(|_| "aarch64-linux-gnu-".to_string());
+        let mut cmd = Command::new("make");
+        cmd.args(["-C", "lkm"])
+            .arg(format!("KDIR={}", PathBuf::from(kdir_val).display()))
+            .arg("ARCH=arm64")
+            .arg(format!("CROSS_COMPILE={cross}"));
+        run_command(&mut cmd, "build lkm/df_gpu_vfs.ko")?;
+    }
+
+    let ko_src = Path::new("lkm/df_gpu_vfs.ko");
+    if ko_src.is_file() {
+        let ko_dst_dir = temp_dir.join("lkm");
+        fs::create_dir_all(&ko_dst_dir)?;
+        file::copy(
+            ko_src,
+            ko_dst_dir.join("df_gpu_vfs.ko"),
+            &file::CopyOptions::new().overwrite(true),
+        )
+        .context("failed to stage lkm/df_gpu_vfs.ko")?;
+        println!("Staged LKM module: lkm/df_gpu_vfs.ko");
+    }
 
     Ok(())
 }

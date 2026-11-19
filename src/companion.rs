@@ -209,6 +209,30 @@ pub struct WriteLogRequest {
     pub lines: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SyncGpuLkmRequest {
+    pub uid: u32,
+    pub gpu: crate::config::ResolvedGpuConfig,
+    pub debug: bool,
+}
+
+/// 经 companion（root 域）把目标 UID 的 GPU 伪装参数同步到 `df_gpu_vfs.ko`。
+/// 返回 `Ok(true)` 表示 LKM 零驻留通道已就绪；`Ok(false)` 表示当前内核未加载 `.ko` 或缺少代理 `.so`。
+pub fn sync_gpu_lkm_via_companion(
+    api: &mut ZygiskApi<V4>,
+    uid: u32,
+    gpu: &crate::config::ResolvedGpuConfig,
+    debug: bool,
+) -> anyhow::Result<bool> {
+    let request = CompanionRequest::SyncGpuLkm(SyncGpuLkmRequest {
+        uid,
+        gpu: gpu.clone(),
+        debug,
+    });
+    let response = send_companion_command(api, &request)?;
+    Ok(response.status == 0 && response.lkm_active)
+}
+
 pub fn spoof_system_props_via_companion(
     api: &mut ZygiskApi<V4>,
     prop_map: &HashMap<String, String>,
@@ -337,6 +361,15 @@ pub fn handle_companion_request(stream: &mut UnixStream) {
                     CompanionResponse::err(err.to_string())
                 }
             };
+            if let Err(e) = write_companion_response(stream, &response) {
+                warn!("Failed to write companion response: {e}");
+            }
+        }
+        CompanionRequest::SyncGpuLkm(request) => {
+            sync_log_level(request.debug);
+            let active = crate::gpu_lkm::sync_uid_gpu_cfg(request.uid, &request.gpu, request.debug);
+            let mut response = CompanionResponse::ok();
+            response.lkm_active = active;
             if let Err(e) = write_companion_response(stream, &response) {
                 warn!("Failed to write companion response: {e}");
             }
@@ -877,6 +910,7 @@ pub enum CompanionRequest {
     Apply(ResetpropSessionRequest),
     Restore(RestoreRequest),
     WriteLog(WriteLogRequest),
+    SyncGpuLkm(SyncGpuLkmRequest),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -887,6 +921,9 @@ pub struct CompanionResponse {
     /// `GetSpec` 的响应：命中包的 TOML 文本。
     #[serde(default)]
     pub spec: Option<String>,
+    /// `SyncGpuLkm` 的响应：LKM 零驻留代理是否已生效。
+    #[serde(default)]
+    pub lkm_active: bool,
 }
 
 impl CompanionResponse {
@@ -896,6 +933,7 @@ impl CompanionResponse {
             message: None,
             backups: None,
             spec: None,
+            lkm_active: false,
         }
     }
 
@@ -905,6 +943,7 @@ impl CompanionResponse {
             message: Some(msg.into()),
             backups: None,
             spec: None,
+            lkm_active: false,
         }
     }
 
@@ -914,6 +953,7 @@ impl CompanionResponse {
             message: None,
             backups: Some(backups),
             spec: None,
+            lkm_active: false,
         }
     }
 }

@@ -16,6 +16,15 @@ pub fn is_active() -> bool {
     GPU_SPOOF_ACTIVE.load(Ordering::Acquire)
 }
 
+/// 仅预置 Mesa/Turnip/Zink 的 `force_gl_*` 环境变量（不置位 `GPU_SPOOF_ACTIVE`，
+/// 用于 LKM 零驻留模式下保持 Zygisk 模块立即 `DlClose` 卸载）。
+pub fn prepare_mesa_env_only(cfg: &ResolvedGpuConfig) {
+    #[cfg(target_os = "android")]
+    android_impl::prepare_mesa_env(cfg);
+    #[cfg(not(target_os = "android"))]
+    let _ = cfg;
+}
+
 /// 在 `pre_app_specialize` 阶段准备 GPU 伪装状态（纯内存存储 + Mesa 环境变量）。
 pub fn prepare_in_pre_specialize(cfg: &ResolvedGpuConfig, debug_log: bool) {
     #[cfg(target_os = "android")]
@@ -214,6 +223,15 @@ mod android_impl {
     fn set_env_cstring(key: &CStr, value: &CStr) {
         unsafe {
             libc::setenv(key.as_ptr(), value.as_ptr(), 1);
+        }
+    }
+
+    pub fn prepare_mesa_env(cfg: &ResolvedGpuConfig) {
+        if let Some(renderer) = to_cstring(cfg.renderer.as_deref()) {
+            set_env_cstring(c"force_gl_renderer", &renderer);
+        }
+        if let Some(vendor) = to_cstring(cfg.vendor.as_deref()) {
+            set_env_cstring(c"force_gl_vendor", &vendor);
         }
     }
 

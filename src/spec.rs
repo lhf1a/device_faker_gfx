@@ -144,6 +144,10 @@ fn render_doc(config: &Config, merged: &MergedAppConfig, package: &str) -> Strin
     let mut root = toml::map::Map::new();
     root.insert("debug".to_string(), toml::Value::Boolean(config.debug));
     root.insert(
+        "gpu_backend".to_string(),
+        toml::Value::String(config.gpu_backend.as_str().to_string()),
+    );
+    root.insert(
         "default_force_denylist_unmount".to_string(),
         toml::Value::Boolean(config.default_force_denylist_unmount),
     );
@@ -208,6 +212,8 @@ pub fn maybe_render() {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             *guard = Some(table);
+            // 配置变更后清空 LKM 内核 UID 规则表，确保移除的应用下次启动不再走代理重定向
+            crate::gpu_lkm::clear_all_uid_cfgs();
             info!("Rendered {count} per-package spec(s) in memory");
         }
         Ok(None) => {}

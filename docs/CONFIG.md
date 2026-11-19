@@ -16,10 +16,15 @@
 ```toml
 debug = false                        # 调试日志（默认关闭）
 default_force_denylist_unmount = false
+gpu_backend = "auto"                 # GPU 伪装后端: "auto" | "lkm" | "hook"
 ```
 
 - `debug`：启用后输出 Info 级别日志（关闭时仅 Error），写入 `/data/adb/device_faker/logs/device_faker.log`；正常使用建议关闭以提高隐蔽性
 - `default_force_denylist_unmount`：为目标应用启用 Zygisk 的 `FORCE_DENYLIST_UNMOUNT`，可在模板/应用里用 `force_denylist_unmount` 覆盖
+- `gpu_backend`：控制 GPU 伪装执行后端：
+  - `"auto"`（默认）：优先使用 `df_gpu_vfs.ko` LKM VFS 代理（Zygisk 零驻留、零 GOT/PLT 修改）；若内核未加载 `.ko` 则自动回退到进程内 GOT Hook
+  - `"lkm"`：严格零驻留模式，仅使用 `df_gpu_vfs.ko` + Mesa 环境变量，绝不保留 Zygisk 模块驻留
+  - `"hook"`：强制使用进程内 GOT/PLT Hook（忽略 LKM）
 
 ## 编辑配置
 
@@ -175,10 +180,16 @@ manufacturer = "Samsung"
   - `intel` / `iris` / `arc` → `Intel` (`0x8086`)
   - `radeon` / `amd` / `rdna` → `AMD` (`0x1002`)
   - `llvmpipe` / `lavapipe` / `softpipe` / `swiftshader` / `mesa` → `Mesa` (`0x10005`)
-- **运行时 Hook 与按需驻留**：
-  - 仅当某个应用解析后至少有一个有效的 `gpu_*` 字段（空串、空白或 `"__DELETE__"` 视作未设置）时，模块才会在 `post_app_specialize` 跳过 `DlClose` 并挂载 ELF64 GOT/PLT 钩子；未配置 GPU 字段的应用依然在属性写完后立即卸载模块。
-  - Hook 覆盖已加载及后续通过 `dlopen` / `android_dlopen_ext` / `dlsym` / `eglGetProcAddress` / `vkGetInstanceProcAddr` / `vkGetDeviceProcAddr` 动态加载的图形库，拦截 `glGetString` 及 `vkGetPhysicalDeviceProperties` / `vkGetPhysicalDeviceProperties2` / `vkGetPhysicalDeviceProperties2KHR`。
-  - 开启 `debug = true` 时，GPU 钩子安装摘要会同时写入模块日志与 logcat（tag 为 `device_faker_gpu`）。
+- **LKM 零驻留模式（`df_gpu_vfs.ko`）**：
+  - 针对目标内核编译内核模块：
+    ```bash
+    make -C lkm KDIR=/path/to/kernel-build ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+    ```
+  - 打包时设置 `DF_KERNEL_DIR=/path/to/kernel-build cargo run --package xtask -- build -r` 即可把 `df_gpu_vfs.ko` 一并打入模块 ZIP；也可在真机上将针对当前内核编译的 `.ko` 放到 `/data/adb/device_faker/lkm/df_gpu_vfs.ko`（`post-fs-data.sh` 会优先加载该路径）。
+  - 启用 LKM 后，Zygisk 模块不再跳过 `DlClose`，且不修改应用进程的 GOT/PLT 或 `dlopen`/`dlsym`。
+- **进程内 Hook 回退模式（未加载 `.ko` 时）**：
+  - 仅当某个应用解析后至少有一个有效的 `gpu_*` 字段（空串、空白或 `"__DELETE__"` 视作未设置）且 `gpu_backend` 为 `"auto"` / `"hook"` 时，模块才会在 `post_app_specialize` 跳过 `DlClose` 并挂载 ELF64 GOT/PLT 钩子；未配置 GPU 字段的应用依然在属性写完后立即卸载模块。
+  - 开启 `debug = true` 时，GPU 钩子或代理日志会同时写入 logcat（`device_faker_gpu` / `df_vk_proxy` / `df_gles_proxy` / `df_egl_proxy`）。
 
 ### DPI伪装
 
