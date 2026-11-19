@@ -137,12 +137,25 @@ fn set_redirect_rule(kind: u32, src_path: &str, dst_path: &str, orig_path: &str)
     )
 }
 
+#[cfg(target_os = "android")]
+unsafe extern "C" {
+    fn __system_property_get(name: *const libc::c_char, value: *mut libc::c_char) -> libc::c_int;
+}
+
 fn read_sys_prop(key: &str) -> Option<String> {
     #[cfg(target_os = "android")]
     {
-        prop_rs_android::sys_prop::get(key)
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+        let c_key = std::ffi::CString::new(key).ok()?;
+        let mut buf = [0u8; 92];
+        let len = unsafe { __system_property_get(c_key.as_ptr(), buf.as_mut_ptr().cast()) };
+        if len <= 0 {
+            return None;
+        }
+        let s = std::str::from_utf8(&buf[..(len as usize).min(buf.len() - 1)])
+            .ok()?
+            .trim()
+            .to_string();
+        if s.is_empty() { None } else { Some(s) }
     }
     #[cfg(not(target_os = "android"))]
     {

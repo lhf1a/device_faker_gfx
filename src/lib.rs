@@ -241,13 +241,20 @@ impl MyModule {
             let app_uid = (*args.uid).max(0) as u32;
             match config.gpu_backend {
                 GpuBackend::Auto => {
-                    let lkm_ok = companion::sync_gpu_lkm_via_companion(
+                    let lkm_ok = match companion::sync_gpu_lkm_via_companion(
                         api,
                         app_uid,
                         &gpu_cfg,
                         config.debug,
-                    )
-                    .unwrap_or(false);
+                    ) {
+                        Ok(active) => active,
+                        Err(e) => {
+                            if config.debug {
+                                warn!("GPU LKM companion sync failed for {package_name}: {e:#}");
+                            }
+                            false
+                        }
+                    };
                     if lkm_ok {
                         gpu_hook::prepare_mesa_env_only(&gpu_cfg);
                         if config.debug {
@@ -265,13 +272,20 @@ impl MyModule {
                     }
                 }
                 GpuBackend::Lkm => {
-                    let lkm_ok = companion::sync_gpu_lkm_via_companion(
+                    let lkm_ok = match companion::sync_gpu_lkm_via_companion(
                         api,
                         app_uid,
                         &gpu_cfg,
                         config.debug,
-                    )
-                    .unwrap_or(false);
+                    ) {
+                        Ok(active) => active,
+                        Err(e) => {
+                            if config.debug {
+                                warn!("GPU LKM companion sync failed for {package_name}: {e:#}");
+                            }
+                            false
+                        }
+                    };
                     gpu_hook::prepare_mesa_env_only(&gpu_cfg);
                     if config.debug {
                         info!(
