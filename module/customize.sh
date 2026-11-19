@@ -54,7 +54,7 @@ chooseport() {
     return 1
 }
 
-tr_print "- 安装 Device Faker 模块" "- Installing Device Faker module"
+tr_print "- 安装 Device Faker GFX 模块" "- Installing Device Faker GFX module"
 mkdir -p "$CONFIG_DIR"
 chmod 755 "$CONFIG_DIR"
 

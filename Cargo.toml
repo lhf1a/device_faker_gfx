@@ -6,7 +6,7 @@ exclude = ["device_faker_cli"]
 name = "device_faker"
 version = "1.7.0"
 edition = "2024"
-authors = ["Seyud"]
+authors = ["lhf1a", "Seyud"]
 
 [dependencies]
 anyhow = { version = "1.0.102", default-features = false }

@@ -26,11 +26,11 @@ fingerprint = "Xiaomi/2509FPN0BC/Xiaomi15Pro:14/UP1A.231005.007/V816.0.3.0.VNBCN
 
 export const mockModuleProp = `
 id=device_faker
-name=Device Faker
-version=1.0.0
-versionCode=100
-author=酷安@瓦力喀/GitHub@Seyud
-description=机型伪装模块
+name=Device Faker GFX
+version=1.7.0
+versionCode=20261119
+author=GitHub@lhf1a
+description=机型与GPU伪装模块
 `
 
 export const mockInstalledApps = [

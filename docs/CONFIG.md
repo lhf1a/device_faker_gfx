@@ -152,6 +152,34 @@ manufacturer = "Samsung"
 
 > `security_patch` 会连同各分区副本一起写入。
 
+### GPU 伪装（GLES / Vulkan）
+
+可在模板或 `[[apps]]` 中配置以下 GPU 伪装字段，用于按进程改写应用读取到的 OpenGL ES 与 Vulkan 显卡信息（**不替换或修改系统/Vendor 任何驱动 `.so`**，保留原有 Vulkan 策略路由）：
+
+| 字段 | 类型 / 格式 | 作用域 | 说明 |
+| --- | --- | --- | --- |
+| `gpu_renderer` | 字符串（别名 `gpu`） | OpenGL ES + Vulkan + Mesa | 覆盖 `glGetString(GL_RENDERER)`、Vulkan `VkPhysicalDeviceProperties.deviceName`，并设置 Mesa 环境变量 `force_gl_renderer` |
+| `gpu_vendor` | 字符串 | OpenGL ES + Mesa | 覆盖 `glGetString(GL_VENDOR)` 并设置 Mesa 环境变量 `force_gl_vendor`；留空时按 `gpu_renderer` 关键字自动推断 |
+| `gpu_vendor_id` | 整数或 `"0x..."` 十六进制/十进制字符串 | Vulkan | 覆盖 `VkPhysicalDeviceProperties.vendorID`；留空时按 `gpu_vendor` / `gpu_renderer` 关键字自动推断 |
+| `gpu_device_id` | 整数或 `"0x..."` 十六进制/十进制字符串 | Vulkan | 覆盖 `VkPhysicalDeviceProperties.deviceID` |
+| `gpu_driver_version` | 整数或 `"0x..."` 十六进制/十进制字符串 | Vulkan | 覆盖 `VkPhysicalDeviceProperties.driverVersion` |
+| `gpu_gl_version` | 字符串 | OpenGL ES | 覆盖 `glGetString(GL_VERSION)`（如 `"OpenGL ES 3.2 V@0840.0"`） |
+
+- **自动推断规则**（未显式填写 `gpu_vendor` / `gpu_vendor_id` 时按不区分大小写的关键字匹配）：
+  - `adreno` / `qualcomm` → `Qualcomm` (`0x5143`)
+  - `mali` / `immortalis` / `arm` → `ARM` (`0x13B5`)
+  - `powervr` / `imagination` / `img` → `Imagination Technologies` (`0x1010`)
+  - `xclipse` / `samsung` → `Samsung` (`0x144D`)
+  - `apple` → `Apple` (`0x106B`)
+  - `nvidia` / `tegra` / `geforce` → `NVIDIA Corporation` (`0x10DE`)
+  - `intel` / `iris` / `arc` → `Intel` (`0x8086`)
+  - `radeon` / `amd` / `rdna` → `AMD` (`0x1002`)
+  - `llvmpipe` / `lavapipe` / `softpipe` / `swiftshader` / `mesa` → `Mesa` (`0x10005`)
+- **运行时 Hook 与按需驻留**：
+  - 仅当某个应用解析后至少有一个有效的 `gpu_*` 字段（空串、空白或 `"__DELETE__"` 视作未设置）时，模块才会在 `post_app_specialize` 跳过 `DlClose` 并挂载 ELF64 GOT/PLT 钩子；未配置 GPU 字段的应用依然在属性写完后立即卸载模块。
+  - Hook 覆盖已加载及后续通过 `dlopen` / `android_dlopen_ext` / `dlsym` / `eglGetProcAddress` / `vkGetInstanceProcAddr` / `vkGetDeviceProcAddr` 动态加载的图形库，拦截 `glGetString` 及 `vkGetPhysicalDeviceProperties` / `vkGetPhysicalDeviceProperties2` / `vkGetPhysicalDeviceProperties2KHR`。
+  - 开启 `debug = true` 时，GPU 钩子安装摘要会同时写入模块日志与 logcat（tag 为 `device_faker_gpu`）。
+
 ### DPI伪装
 
 在模板或 `[[apps]]` 中设置 `dpi`（范围 `120`–`640`），例如 `dpi = 420`。模块先保存当前的 DPI；目标应用退到后台或退出后恢复原值，回到前台时重新应用。原本没有保存时走 DPI 重置。
@@ -205,10 +233,10 @@ manufacturer = "Custom"
 所有应用统一走同一执行流（无需选择模式）：
 
 ```
-① 覆写 Build 字段 → ② 修改系统属性 → ③ DPI 伪装 → ④ 卸载模块
+① 覆写 Build 字段 → ② 准备 GPU 伪装（如配置） → ③ 修改系统属性 → ④ DPI 伪装 → ⑤ 未启用 GPU Hook 时卸载模块（启用则在 post_app_specialize 挂载 Hook）
 ```
 
-- **默认（推荐）**：伪装只在**应用自己的进程内**生效——应用里读到的都是伪装值，其它应用、系统服务和 `getprop` 读到的仍是真值；模块改完立即卸载，不常驻、不残留。
+- **默认（推荐）**：伪装只在**应用自己的进程内**生效——应用里读到的都是伪装值，其它应用、系统服务和 `getprop` 读到的仍是真值；未配置 GPU 伪装的应用改完立即卸载，不常驻、不残留。
 - **`companion_resetprop = true`**：伪装值**对全系统生效**（`getprop`、其它应用也能读到）。应用切到后台或退出后自动恢复真值，回到前台重新应用。
 
 需要让检测工具（多数通过 `getprop` 子进程读取属性）也看到伪装值时，才需要开启 `companion_resetprop`；代价是应用运行期间伪装值对全局可见。
@@ -235,6 +263,9 @@ device = "REDMAGIC 11 PRO"
 product = "NX809J"
 fingerprint = "REDMAGIC/NX809J-UN/NX809J:16/BP2A.250605.031.A3/20251017.000000:user/release-keys"
 build_id = "BP2A.250605.031.A3"
+gpu_renderer = "Adreno (TM) 840"
+gpu_device_id = "0x44030000"
+# gpu_vendor 与 gpu_vendor_id 留空可自动推断为 "Qualcomm" / 0x5143
 
 # ── 直接配置 ──────────────────────────────────────────────
 [[apps]]
@@ -249,6 +280,8 @@ android_version = "15"
 sdk_int = 35
 dpi = 420                       # 临时屏幕密度（120–640）
 force_denylist_unmount = true  # 覆盖全局默认，仅对该应用启用
+gpu_renderer = "Adreno (TM) 830"
+gpu_gl_version = "OpenGL ES 3.2 V@0830.0"
 
 [[apps]]
 package = "com.example.detected.app"

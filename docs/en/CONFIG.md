@@ -151,6 +151,34 @@ The following fields can be used in templates or `[[apps]]`. Each field rewrites
 
 > `security_patch` is written together with all of its partition copies.
 
+### GPU Spoofing (GLES / Vulkan)
+
+The following GPU spoofing fields can be set in templates or `[[apps]]` to rewrite the OpenGL ES and Vulkan device info read inside the target app process (**without modifying or replacing any system/vendor driver `.so`**, preserving system Vulkan routing policies):
+
+| Field | Type / Format | Scope | Description |
+| --- | --- | --- | --- |
+| `gpu_renderer` | String (alias `gpu`) | OpenGL ES + Vulkan + Mesa | Overrides `glGetString(GL_RENDERER)`, Vulkan `VkPhysicalDeviceProperties.deviceName`, and Mesa env var `force_gl_renderer` |
+| `gpu_vendor` | String | OpenGL ES + Mesa | Overrides `glGetString(GL_VENDOR)` and Mesa env var `force_gl_vendor`; auto-inferred from `gpu_renderer` keywords when omitted |
+| `gpu_vendor_id` | Integer or `"0x..."` hex/decimal string | Vulkan | Overrides `VkPhysicalDeviceProperties.vendorID`; auto-inferred from `gpu_vendor` / `gpu_renderer` when omitted |
+| `gpu_device_id` | Integer or `"0x..."` hex/decimal string | Vulkan | Overrides `VkPhysicalDeviceProperties.deviceID` |
+| `gpu_driver_version` | Integer or `"0x..."` hex/decimal string | Vulkan | Overrides `VkPhysicalDeviceProperties.driverVersion` |
+| `gpu_gl_version` | String | OpenGL ES | Overrides `glGetString(GL_VERSION)` (e.g. `"OpenGL ES 3.2 V@0840.0"`) |
+
+- **Automatic vendor inference** (case-insensitive keyword match when `gpu_vendor` / `gpu_vendor_id` is left unset):
+  - `adreno` / `qualcomm` → `Qualcomm` (`0x5143`)
+  - `mali` / `immortalis` / `arm` → `ARM` (`0x13B5`)
+  - `powervr` / `imagination` / `img` → `Imagination Technologies` (`0x1010`)
+  - `xclipse` / `samsung` → `Samsung` (`0x144D`)
+  - `apple` → `Apple` (`0x106B`)
+  - `nvidia` / `tegra` / `geforce` → `NVIDIA Corporation` (`0x10DE`)
+  - `intel` / `iris` / `arc` → `Intel` (`0x8086`)
+  - `radeon` / `amd` / `rdna` → `AMD` (`0x1002`)
+  - `llvmpipe` / `lavapipe` / `softpipe` / `swiftshader` / `mesa` → `Mesa` (`0x10005`)
+- **Runtime hooks & on-demand residency**:
+  - Only when an app resolves with at least one effective `gpu_*` field (empty/whitespace strings or `"__DELETE__"` are treated as unset) does the module skip `DlClose` and install ELF64 GOT/PLT hooks in `post_app_specialize`; apps without GPU spoofing still unload immediately after patching properties.
+  - Hooks cover already-loaded libraries and libraries loaded later via `dlopen`, `android_dlopen_ext`, `dlsym`, `eglGetProcAddress`, `vkGetInstanceProcAddr`, and `vkGetDeviceProcAddr`, intercepting `glGetString` as well as `vkGetPhysicalDeviceProperties`, `vkGetPhysicalDeviceProperties2`, and `vkGetPhysicalDeviceProperties2KHR`.
+  - When `debug = true`, GPU hook installation diagnostics are also logged to Android logcat under tag `device_faker_gpu`.
+
 ### Per-app DPI
 
 Set `dpi` (range `120`–`640`) in a template or `[[apps]]`, for example `dpi = 420`. The current density override is saved first; it is restored right after the target app goes to the background or exits, and reapplied when the app returns to the foreground. If there was no override, it is reset with `wm density reset`.
@@ -204,10 +232,10 @@ manufacturer = "Custom"
 All apps go through the same unified flow (no mode selection needed):
 
 ```
-① Overwrite the Build fields → ② Rewrite the system properties → ③ Spoof DPI → ④ Unload the module
+① Overwrite the Build fields → ② Prepare GPU spoof (if configured) → ③ Rewrite the system properties → ④ Spoof DPI → ⑤ Unload the module (or install GPU hooks in post_app_specialize)
 ```
 
-- **Default (recommended)**: spoofing stays **inside the app's own process** — the app reads the spoofed values while other apps, system services and `getprop` still see the real ones; the module unloads right after patching, leaving nothing resident.
+- **Default (recommended)**: spoofing stays **inside the app's own process** — the app reads the spoofed values while other apps, system services and `getprop` still see the real ones; apps without GPU spoofing unload right after patching, leaving nothing resident.
 - **`companion_resetprop = true`**: the spoofed values become **system-wide** (`getprop` and other apps see them too). They are restored as soon as the app goes to the background or exits, and reapplied when it comes back.
 
 Enable `companion_resetprop` only when detection tooling (usually reading through a `getprop` subprocess) must also see the spoofed values — the trade-off is that the spoofed properties are globally visible while the app runs.
@@ -234,6 +262,9 @@ device = "REDMAGIC 11 PRO"
 product = "NX809J"
 fingerprint = "REDMAGIC/NX809J-UN/NX809J:16/BP2A.250605.031.A3/20251017.000000:user/release-keys"
 build_id = "BP2A.250605.031.A3"
+gpu_renderer = "Adreno (TM) 840"
+gpu_device_id = "0x44030000"
+# gpu_vendor and gpu_vendor_id auto-infer as "Qualcomm" / 0x5143
 
 # ── Direct configuration ──────────────────────────────────
 [[apps]]
@@ -248,6 +279,8 @@ android_version = "15"
 sdk_int = 35
 dpi = 420                       # temporary display density (120–640)
 force_denylist_unmount = true  # overrides the global default, this app only
+gpu_renderer = "Adreno (TM) 830"
+gpu_gl_version = "OpenGL ES 3.2 V@0830.0"
 
 [[apps]]
 package = "com.example.detected.app"

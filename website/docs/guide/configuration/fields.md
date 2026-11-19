@@ -43,6 +43,23 @@
 > `security_patch` 会连同各分区副本一起写入。
 > `sdk_int` 是数值字段，但支持字符串标记 `sdk_int = "__DELETE__"` 删除 `ro.build.version.sdk` 整族（高风险操作，WebUI 表单不提供，需手改 TOML）。
 
+## GPU 伪装（GLES / Vulkan）
+
+可在模板或 `[[apps]]` 中配置以下字段以在目标应用进程内伪装 OpenGL ES 与 Vulkan GPU 信息（不修改或替换任何系统/Vendor 驱动 `.so`）：
+
+| 字段 | 格式 | 作用域 | 说明 |
+| --- | --- | --- | --- |
+| `gpu_renderer` | 字符串（别名 `gpu`） | OpenGL ES + Vulkan + Mesa | 覆盖 `glGetString(GL_RENDERER)`、Vulkan `deviceName` 与 Mesa `force_gl_renderer` |
+| `gpu_vendor` | 字符串 | OpenGL ES + Mesa | 覆盖 `glGetString(GL_VENDOR)` 与 Mesa `force_gl_vendor`；留空时按 `gpu_renderer` 自动推断 |
+| `gpu_vendor_id` | 整数或 `"0x..."` 字符串 | Vulkan | 覆盖 `vendorID`；留空时按 `gpu_vendor` / `gpu_renderer` 自动推断 |
+| `gpu_device_id` | 整数或 `"0x..."` 字符串 | Vulkan | 覆盖 `deviceID` |
+| `gpu_driver_version` | 整数或 `"0x..."` 字符串 | Vulkan | 覆盖 `driverVersion` |
+| `gpu_gl_version` | 字符串 | OpenGL ES | 覆盖 `glGetString(GL_VERSION)` |
+
+::: tip 仅在需要时驻留
+仅当应用配置了至少一个有效 `gpu_*` 字段时，模块才会跳过 `DlClose` 并挂载运行时 GOT/PLT 与动态加载 Hook；未配置 GPU 伪装的应用仍保持零模块驻留。
+:::
+
 ## DPI 伪装
 
 在模板或 `[[apps]]` 中设置 `dpi`（范围 `120`–`640`），例如 `dpi = 420`。模块先保存当前的 DPI；目标应用退到后台或退出后恢复原值，回到前台时重新应用。原本没有保存时走 DPI 重置。

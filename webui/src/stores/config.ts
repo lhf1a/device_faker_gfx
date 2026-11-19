@@ -37,7 +37,7 @@ export const useConfigStore = defineStore('config', () => {
   const config = ref<Config>({})
   // 未知时留空，由 UI 渲染成 `--`（避免把"没读到"显示成假的 0.0.0）
   const moduleVersion = ref('')
-  const moduleAuthor = ref('Seyud')
+  const moduleAuthor = ref('GitHub@lhf1a')
   const loading = ref(false)
   const error = ref<string | null>(null)
   const bootstrapping = ref(false)

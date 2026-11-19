@@ -165,7 +165,7 @@ fn build(release: bool, verbose: bool) -> Result<()> {
     )
     .context("failed to stage zygisk/arm64-v8a.so")?;
     let build_type = if release { "release" } else { "debug" };
-    let package_path = Path::new("output").join(format!("device_faker-({build_type}).zip"));
+    let package_path = Path::new("output").join(format!("device_faker_gfx-({build_type}).zip"));
 
     let local_offset = UtcOffset::from_hms(8, 0, 0).expect("UTC+8 offset should always be valid");
 
@@ -182,7 +182,7 @@ fn build(release: bool, verbose: bool) -> Result<()> {
     })
     .unwrap();
 
-    println!("device_faker built successfully: {:?}", package_path);
+    println!("device_faker_gfx built successfully: {:?}", package_path);
 
     Ok(())
 }

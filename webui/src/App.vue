@@ -27,7 +27,7 @@
               <div class="page-scroll-content">
                 <header class="app-header">
                   <h1 class="header-title">
-                    Device Faker
+                    Device Faker GFX
                     <span class="version">{{ nav.versionDisplay.value }}</span>
                   </h1>
                 </header>

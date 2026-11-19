@@ -43,6 +43,23 @@ Writing only `fingerprint` is enough for a consistent spoof: the module parses i
 > `security_patch` is written together with all of its partition copies.
 > `sdk_int` is numeric, but accepts the string marker `sdk_int = "__DELETE__"` to delete the whole `ro.build.version.sdk` family (risky; the WebUI has no field for it, edit the TOML by hand).
 
+## GPU Spoofing (GLES / Vulkan)
+
+The following fields can be set in templates or `[[apps]]` to spoof OpenGL ES and Vulkan GPU info per app (without modifying or replacing any system/vendor driver `.so`):
+
+| Field | Format | Scope | Description |
+| --- | --- | --- | --- |
+| `gpu_renderer` | String (alias `gpu`) | OpenGL ES + Vulkan + Mesa | Overrides `glGetString(GL_RENDERER)`, Vulkan `deviceName`, and Mesa `force_gl_renderer` |
+| `gpu_vendor` | String | OpenGL ES + Mesa | Overrides `glGetString(GL_VENDOR)` and Mesa `force_gl_vendor`; auto-inferred from `gpu_renderer` if blank |
+| `gpu_vendor_id` | Integer or `"0x..."` string | Vulkan | Overrides `vendorID`; auto-inferred from `gpu_vendor` / `gpu_renderer` if blank |
+| `gpu_device_id` | Integer or `"0x..."` string | Vulkan | Overrides `deviceID` |
+| `gpu_driver_version` | Integer or `"0x..."` string | Vulkan | Overrides `driverVersion` |
+| `gpu_gl_version` | String | OpenGL ES | Overrides `glGetString(GL_VERSION)` |
+
+::: tip On-demand residency
+Only apps with at least one effective `gpu_*` field skip `DlClose` and install runtime GOT/PLT and dynamic loader hooks; apps without GPU spoofing still unload with zero residency.
+:::
+
 ## Per-app DPI
 
 Set `dpi` (range `120`–`640`) in a template or `[[apps]]`, for example `dpi = 420`. The current density is saved first; it is restored right after the target app goes to the background or exits, and reapplied when the app returns to the foreground. If there was nothing to restore, the density is reset.

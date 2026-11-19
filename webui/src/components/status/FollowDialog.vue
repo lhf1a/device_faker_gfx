@@ -14,7 +14,7 @@
       <div class="follow-row">
         <div class="follow-row-icon gradient-icon-2 author-icon-wrapper">
           <img
-            src="https://avatars.githubusercontent.com/u/97807424?v=4"
+            src="https://github.com/lhf1a.png"
             alt="Author"
             class="author-avatar-icon"
           />
@@ -173,9 +173,9 @@ const qqGroupUrl =
   'https://qun.qq.com/universal-share/share?ac=1&authKey=ls4nlfcsF%2Bxp5SPnVsXRgpbeV1axPZb%2FmJCMXms6ZCHjgAwvOyl1LV%2BDNVL1btgL&busi_data=eyJncm91cENvZGUiOiI4NTQxODgyNTIiLCJ0b2tlbiI6IlE1WVVyZTZxUXVjZUtGUUxWSGFmbzkvMEd3UWNRSiszdklTZDhHejU0RDRyT0lWRTFqS3d4UGJSM1ltaXpkS3MiLCJ1aW4iOiIxMTA1NzgzMDMzIn0%3D&data=IbvhTKt9HwCSsCsl_610-rQ8p6H2NgLmxhEKkMcn-BMWPb86jygWBZJfWLQGm7J8LwpVV2yhPafxTMXYGkjRVA&svctype=4&tempid=h5_group_info'
 const telegramIntentUrl = 'tg://resolve?domain=device_faker'
 const telegramWebUrl = 'https://t.me/device_faker'
-const websiteUrl = 'https://seyud.github.io/device_faker/'
-const repositoryUrl = 'https://github.com/Seyud/device_faker'
-const authorGithubUrl = 'https://github.com/Seyud'
+const websiteUrl = 'https://github.com/lhf1a/device_faker_gfx'
+const repositoryUrl = 'https://github.com/lhf1a/device_faker_gfx'
+const authorGithubUrl = 'https://github.com/lhf1a'
 
 const authorLinks = computed(() => {
   return moduleAuthor.value

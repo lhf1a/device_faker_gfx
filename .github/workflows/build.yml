@@ -1,4 +1,4 @@
-name: Build Device Faker Module
+name: Build Device Faker GFX Module
 
 on:
   workflow_dispatch:
@@ -80,7 +80,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: device_faker
+          name: device_faker_gfx
           path: module/
       
       - name: Upload
@@ -116,7 +116,7 @@ jobs:
           workflow_url_escaped = workflow_url.replace(")", "\\)")
 
           caption = (
-              f"🚀 *Device\\_Faker Build \\#{run_number}*\n"
+              f"🚀 *Device\\_Faker\\_GFX Build \\#{run_number}*\n"
               f"📋 *Build Info:*\n"
               f"[Commit]({commit_url_escaped})\n"
               f"📝 *Commit Message:*\n"
@@ -142,4 +142,4 @@ jobs:
             -F "chat_id=${CHAT_ID}" \
             -F "message_thread_id=${MESSAGE_THREAD_ID}" \
             -F "media=${MEDIA_JSON}" \
-            -F "file=@output/device_faker-(release).zip"
+            -F "file=@output/device_faker_gfx-(release).zip"
